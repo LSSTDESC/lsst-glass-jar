@@ -17,7 +17,7 @@ Examples:
 
     # Y10 mock, with theory Cls (SACC) and diagnostic plots, tagged with a fixed mock id
     python generate_lsst_glass_mock.py --nside 1024 --year 10 --outdir out \\
-        --save-theory-cls 1 --save-diagnostics 1 --mock-id run042
+        --save-theory-cls --save-diagnostics --mock-id run042
 
     # custom cosmology via a small YAML file (only the keys you set are overridden from Planck18),
     # with an individual CLI override layered on top of that
@@ -648,15 +648,15 @@ def parse_args(argv=None):
 
     toggles = p.add_argument_group("optional outputs / dev-loop controls")
     toggles.add_argument(
-        "--save-theory-cls", type=int, default=0, choices=[0, 1],
-        help="If 1, additionally compute the theory 3x2pt Cls (gg/gG/GG) and save them as "
-             "a single SACC file (HDF5-backed), including the tomographic n(z)s actually "
-             "used in this run. This costs one extra CAMB reference call. Default: 0 (off).",
+        "--save-theory-cls", action="store_true",
+        help="If given, additionally compute the theory 3x2pt Cls (gg/gG/GG) and save them "
+             "as a single SACC file (HDF5-backed), including the tomographic n(z)s actually "
+             "used in this run. This costs one extra CAMB reference call. Default: off.",
     )
     toggles.add_argument(
-        "--save-diagnostics", type=int, default=0, choices=[0, 1],
-        help="If 1, save diagnostic PNGs under <outdir>/diagnostics/ (mask mollview, "
-             "GLASS-vs-CAMB theory ratio [only if --save-theory-cls 1], catalogue "
+        "--save-diagnostics", action="store_true",
+        help="If given, save diagnostic PNGs under <outdir>/diagnostics/ (mask mollview, "
+             "GLASS-vs-CAMB theory ratio [only if --save-theory-cls given], catalogue "
              "PHOTO_Z/ZBIN histograms and n(z) sanity-check plots). These look the same "
              "run to run, so they're off by default.",
     )
