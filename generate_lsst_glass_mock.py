@@ -344,10 +344,14 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
 
 # ────────────────────────────── mask ──────────────────────────────
 
-def load_mask(mask_path: str, nside: int, outdir: str, save_diagnostics: bool):
+def load_mask(mask_path: str, nside: int, outdir: str, save_diagnostics: bool, mask_cut):
     # the bundled mask is already a visibility map (0-1) -- do not invert it
     y_mask = hp.read_map(mask_path)
     y_ud = hp.ud_grade(y_mask, nside)
+
+    if mask_cut is not None:
+        y_ud = (y_ud >= mask_cut).astype(y_ud.dtype)
+        log.info("mask binarized at cut=%.3f: %.4f of pixels pass", mask_cut, float(np.mean(y_ud)))
 
     mean_vis = float(np.mean(1.0 / y_mask[y_mask != 0]))
     log.info("mask loaded from %s: mean(1/visibility) over unmasked pixels = %.4f", mask_path, mean_vis)
@@ -547,15 +551,16 @@ def parse_args(argv=None):
 
     sim = p.add_argument_group("simulation")
     sim.add_argument(
-        "--nside", type=int, required=True,
+        "--nside", type=int, default=4096,
         help="HEALPix resolution for the lognormal density/shear maps. Does NOT change the "
              "total simulated galaxy count (that's density x footprint area) — only how "
-             "finely clustering is resolved on the sky, and therefore runtime.",
+             "finely clustering is resolved on the sky, and therefore runtime. Default: "
+             "4096, matching the bundled mask's native resolution (no downgrade needed).",
     )
     sim.add_argument(
         "--lmax", type=int, default=None,
         help="Maximum angular multipole for the matter power spectra / lognormal fields. "
-             "Default: 2*nside.",
+             "Default: nside.",
     )
     sim.add_argument(
         "--year", choices=["1", "10"], required=True,
@@ -631,6 +636,15 @@ def parse_args(argv=None):
              "directly — healpy/astropy decompress transparently), reused for both Y1 and "
              "Y10 (no separate Y1 mask currently exists).",
     )
+    out_grp.add_argument(
+        "--mask-cut", type=float, default=None,
+        help="If set, binarize the mask after downgrading to sim nside: pixels with "
+             "visibility >= this value become 1 (full weight, no incompleteness "
+             "correction needed), pixels below become 0 (excluded from sampling "
+             "entirely). SYST_WEIGHT is then always 1.0 (the mask is binary, not "
+             "fractional). Default: None -- use the continuous 0-1 visibility map "
+             "as-is, with SYST_WEIGHT = 1/visibility per galaxy's pixel.",
+    )
 
     toggles = p.add_argument_group("optional outputs / dev-loop controls")
     toggles.add_argument(
@@ -664,7 +678,7 @@ def parse_args(argv=None):
 
     args = p.parse_args(argv)
     if args.lmax is None:
-        args.lmax = 2 * args.nside
+        args.lmax = args.nside
     return args
 
 
@@ -716,7 +730,7 @@ def main(argv=None):
 
     cls_discretized = glass.discretized_cls(cls, nside=args.nside, lmax=args.lmax, ncorr=3)
 
-    mask, mask_ud = load_mask(args.mask_path, args.nside, args.outdir, args.save_diagnostics)
+    mask, mask_ud = load_mask(args.mask_path, args.nside, args.outdir, args.save_diagnostics, args.mask_cut)
 
     log.info("running simulation")
     source_path, lens_path, n_src, n_lens = run_simulation(
