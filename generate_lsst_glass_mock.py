@@ -61,7 +61,7 @@ N_SHELLS = 25         # number of comoving-distance shells (matches the source n
 # already inverted to visibility convention — do NOT re-invert it. Resolved relative to
 # this script's own location, not the caller's cwd, so it works from anywhere.
 DEFAULT_MASK_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "lsst_y10_final_map4096.fits.gz"
+    os.path.dirname(os.path.abspath(__file__)), "masks", "lsst_y10_final_map4096.fits.gz"
 )
 
 # Planck 2018 (TT,TE,EE+lowE+lensing), Planck 2018 VI, Table 2.
@@ -627,7 +627,7 @@ def parse_args(argv=None):
         help="Path to a HEALPix visibility map (values 0-1, fraction of each pixel "
              "observed) used both to restrict galaxy sampling to the survey footprint and "
              "to set each galaxy's SYST_WEIGHT = 1/visibility. Default: the bundled LSST "
-             "Y10 mask (data/lsst_y10_final_map4096.fits.gz, gzip-compressed but readable "
+             "Y10 mask (masks/lsst_y10_final_map4096.fits.gz, gzip-compressed but readable "
              "directly — healpy/astropy decompress transparently), reused for both Y1 and "
              "Y10 (no separate Y1 mask currently exists).",
     )
