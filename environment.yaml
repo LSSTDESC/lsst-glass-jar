@@ -1,0 +1,24 @@
+name: lsst-glass-jar
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - numpy=2.4.2   # camb==1.6.5 breaks under numpy>=2.5 (TypeError in set_cosmology/YHe)
+  - scipy=1.17.0  # camb==1.6.5 breaks under scipy 1.18 the same way
+  - healpy
+  - glass=2026.1
+  - pyccl=3.3.4
+  - sacc=2.4
+  - pyyaml
+  - matplotlib-base
+  - astropy-base
+  - pip
+  - pip:
+      - camb==1.6.5
+      - cosmology==2022.10.9
+      - cosmology.api==0.3.2
+      - cosmology.compat.camb==0.2.0
+      - glass.ext.camb==2023.6
+      - pybinny==0.5.0   # imports as `binny` — pip package name differs from the import name
+      - h5py
+      - tqdm
