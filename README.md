@@ -1,5 +1,12 @@
+<p align="center">
+  <img src="lsst_in_a_jar.png" width="409.6" height="338"
+ alt="LSST Glass Jar"/>
+</p>
+<div align="center">
+
 # LSST GLASS JAR (Just Another Realisation)
 
+</div>
 This is a self contained repository with all you need to generate LSST Y1/Y10 lens+source simulations using [Glass](https://github.com/glass-dev/glass)
 
 ## Setup
