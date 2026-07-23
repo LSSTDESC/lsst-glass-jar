@@ -82,6 +82,10 @@ def setup_logging(outdir: str, level: str) -> None:
             logging.FileHandler(os.path.join(outdir, "run.log")),
         ],
     )
+    # healpy logs a "Sigma is 0 arcmin -> fwhm is 0 arcmin" INFO line every time it's
+    # asked to smooth with fwhm=0 (i.e. no smoothing) -- happens once per shell in the
+    # sim loop and is pure noise here. Quiet healpy's own logger instead of our root level.
+    logging.getLogger("healpy").setLevel(logging.WARNING)
 
 
 def cached(cache_dir: str, name: str, key_parts, compute_fn):
