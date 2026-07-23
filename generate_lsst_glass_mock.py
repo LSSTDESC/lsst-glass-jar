@@ -57,6 +57,24 @@ log = logging.getLogger("glass_lsst_mock")
 BIAS = 1.5           # constant linear galaxy bias applied to all lens tomobins
 N_SHELLS = 25         # number of comoving-distance shells (matches the source notebook)
 
+# galaxy-galaxy lensing (gG) tomographic pairs to save, keyed by --year. [lens_bin, source_bin].
+# NOT the full lens x source cross-product -- only these combinations are wanted.
+GGL_PAIRS = {
+    "1": [(0, 2), (0, 3), (0, 4), (1, 3), (1, 4), (2, 4), (3, 4)],
+    "10": [
+        (0, 1), (0, 2), (0, 3), (0, 4),
+        (1, 1), (1, 2), (1, 3), (1, 4),
+        (2, 2), (2, 3), (2, 4),
+        (3, 2), (3, 3), (3, 4),
+        (4, 2), (4, 3), (4, 4),
+        (5, 3), (5, 4),
+        (6, 3), (6, 4),
+        (7, 3), (7, 4),
+        (8, 4),
+        (9, 4),
+    ],
+}
+
 # Bundled survey mask: an LSST Y10 visibility map (0-1, fraction of the pixel observed),
 # already inverted to visibility convention — do NOT re-invert it. Resolved relative to
 # this script's own location, not the caller's cwd, so it works from anywhere.
@@ -271,14 +289,14 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
     glass_cross = cl_cross / lens_nbar[:, None, None]
     glass_she = cl_she
 
-    gG_pairs = [(il, js) for il in range(lens.n_bins) for js in range(src.n_bins)]
+    lens_src_pairs = GGL_PAIRS[str(year)]
 
     # the catalogue is sampled with linear galaxy bias `bias`, but the GLASS/CAMB theory
     # spectra above are the UNBIASED matter spectra, so apply the galaxy bias here:
-    #   gg -> bias**2, gG -> bias**1, GG -> bias**0
-    save_gg = bias**2 * glass_pos
-    save_gG = bias * glass_cross
-    save_GG = glass_she
+    #   lens x lens -> bias**2, lens x src -> bias**1, src x src -> bias**0
+    save_lens_lens = bias**2 * glass_pos
+    save_lens_src = bias * glass_cross
+    save_src_src = glass_she
 
     ell_sacc = ell[1:].astype(float)
 
@@ -290,14 +308,13 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
 
     for i in range(lens.n_bins):
         for j in range(i, lens.n_bins):
-            s.add_ell_cl("galaxy_density_cl", f"lens{i}", f"lens{j}", ell_sacc, save_gg[i, j, 1:])
+            s.add_ell_cl("galaxy_density_cl", f"lens{i}", f"lens{j}", ell_sacc, save_lens_lens[i, j, 1:])
     for i in range(src.n_bins):
         for j in range(i, src.n_bins):
-            s.add_ell_cl("galaxy_shear_cl_ee", f"src{i}", f"src{j}", ell_sacc, save_GG[i, j, 1:])
-    for i in range(lens.n_bins):
-        for j in range(src.n_bins):
-            # shear tracer first, per the Firecrown/cosmotron convention for a mixed pair
-            s.add_ell_cl("galaxy_shearDensity_cl_e", f"src{j}", f"lens{i}", ell_sacc, save_gG[i, j, 1:])
+            s.add_ell_cl("galaxy_shear_cl_ee", f"src{i}", f"src{j}", ell_sacc, save_src_src[i, j, 1:])
+    for (i, j) in lens_src_pairs:
+        # shear tracer first, per the Firecrown/cosmotron convention for a mixed pair
+        s.add_ell_cl("galaxy_shearDensity_cl_e", f"src{j}", f"lens{i}", ell_sacc, save_lens_src[i, j, 1:])
 
     sacc_path = os.path.join(outdir, f"lsst_y{year}_theory_glass_mock_{mock_id}.sacc.h5")
     s.save_hdf5(sacc_path, overwrite=True)
@@ -306,14 +323,14 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
     mask = (ell[1:] >= 10) & (ell[1:] <= 100)
     ratios = {}
     for i in range(lens.n_bins):
-        r_gg = np.median((glass_pos[i, i, 1:] / theory[f"{key_pos(i)}x{key_pos(i)}"][1:])[mask])
-        ratios[f"lens_gg_bin{i}"] = float(r_gg)
+        r_lens_lens = np.median((glass_pos[i, i, 1:] / theory[f"{key_pos(i)}x{key_pos(i)}"][1:])[mask])
+        ratios[f"lens_lens_bin{i}"] = float(r_lens_lens)
     for i in range(src.n_bins):
-        r_GG = np.median((glass_she[i, i, 1:] / theory[f"{key_she(i)}x{key_she(i)}"][1:])[mask])
-        ratios[f"src_GG_bin{i}"] = float(r_GG)
-    for (il, js) in gG_pairs:
-        r_gG = np.median((glass_cross[il, js, 1:] / theory[f"{key_pos(il)}x{key_she(js)}"][1:])[mask])
-        ratios[f"gG_lens{il}_src{js}"] = float(r_gG)
+        r_src_src = np.median((glass_she[i, i, 1:] / theory[f"{key_she(i)}x{key_she(i)}"][1:])[mask])
+        ratios[f"src_src_bin{i}"] = float(r_src_src)
+    for (il, js) in lens_src_pairs:
+        r_lens_src = np.median((glass_cross[il, js, 1:] / theory[f"{key_pos(il)}x{key_she(js)}"][1:])[mask])
+        ratios[f"lens_src_lens{il}_src{js}"] = float(r_lens_src)
     log.info("GLASS/CAMB median ratios (ell 10-100): %s",
              ", ".join(f"{k}={v:.3f}" for k, v in ratios.items()))
 
@@ -321,7 +338,7 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
         diag_dir = os.path.join(outdir, "diagnostics")
         os.makedirs(diag_dir, exist_ok=True)
         fig, axes = plt.subplots(1, 3, figsize=(15, 4.2), sharey=True)
-        for ax, t in zip(axes, ["clustering  gg", "galaxy-galaxy lensing  gG", "cosmic shear  GG"]):
+        for ax, t in zip(axes, ["clustering (lens x lens)", "galaxy-galaxy lensing (lens x src)", "cosmic shear (src x src)"]):
             ax.axhline(1.0, c="k", ls="--", lw=0.8)
             ax.set_title(t)
             ax.set_xscale("log")
@@ -334,7 +351,7 @@ def compute_theory(pars, lmax, cls, lens: Tomography, src: Tomography, bias, cac
         for i in range(src.n_bins):
             axes[2].plot(ell[1:], glass_she[i, i, 1:] / theory[f"{key_she(i)}x{key_she(i)}"][1:],
                          label=f"bin {i}")
-        for (il, js) in gG_pairs:
+        for (il, js) in lens_src_pairs:
             axes[1].plot(ell[1:], glass_cross[il, js, 1:] / theory[f"{key_pos(il)}x{key_she(js)}"][1:],
                          label=f"lens {il} x src {js}")
         axes[0].legend()
