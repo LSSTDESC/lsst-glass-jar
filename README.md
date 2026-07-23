@@ -7,7 +7,8 @@
 # LSST GLASS JAR (Just Another Realisation)
 
 </div>
-This is a self contained repository with all you need to generate LSST Y1/Y10 lens+source simulations using [Glass](https://github.com/glass-dev/glass)
+
+This is a self contained repository with all you need to generate LSST Y1/Y10 lens+source simulations using [GLASS](https://github.com/glass-dev/glass)
 
 ## Setup
 After cloning this repository, create a new conda environment using: 
