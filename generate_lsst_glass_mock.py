@@ -55,7 +55,14 @@ import binny
 log = logging.getLogger("glass_lsst_mock")
 
 BIAS = 1.5           # constant linear galaxy bias applied to all lens tomobins
-N_SHELLS = 25         # number of comoving-distance shells (matches the source notebook)
+# Comoving width of the matter shells [Mpc]. A galaxy clusters with the WHOLE shell it is drawn
+# in, so shells much wider than a tomographic bin dilute that bin's clustering: the old 25-shell
+# grid (~250 Mpc) lost 13-20% of the lens C_gg. Thinner shells fix that but raise each shell's
+# pixel variance, so the linear-bias clip (1 + b*delta < 0 -> 0) removes more power. ~100 Mpc
+# at nside 2048 is the best trade-off for b = 1.5 (see README, "Known limitations").
+SHELL_DX = 100.0
+# Use the Limber approximation for the shell matter Cls above this multipole. Exact below it.
+LIMBER_LMIN = 100
 
 # galaxy-galaxy lensing (gG) tomographic pairs to save, keyed by --year. [lens_bin, source_bin].
 # NOT the full lens x source cross-product -- only these combinations are wanted.
@@ -175,18 +182,23 @@ def cosmology_cache_key(pars, args):
     )
 
 
-def build_shells(cosmo, zmax: float, num: int = N_SHELLS):
-    zb = glass.distance_grid(cosmo, 0.0, zmax, num=num)
+def build_shells(cosmo, zmax: float, dx: float = SHELL_DX):
+    """Linear-window shells evenly spaced in comoving distance, `dx` Mpc apart."""
+    zb = glass.distance_grid(cosmo, 0.0, zmax, dx=dx)
     shells = glass.linear_windows(zb)
     return zb, shells
 
 
-def get_matter_cls(pars, lmax, shells, cache_dir, cosmo_key, zb):
+def get_matter_cls(pars, lmax, shells, cache_dir, cosmo_key, zb, limber_lmin):
+    """Shell matter Cls from CAMB. `limber_lmin=None` computes them exactly at every ell
+    (slow: hours for ~70 shells at lmax 2048); otherwise Limber above `limber_lmin`."""
+    limber = limber_lmin is not None
     return cached(
         cache_dir,
         "matter_cls",
-        (*cosmo_key, lmax, zb.tolist()),
-        lambda: glass.ext.camb.matter_cls(pars, lmax, shells),
+        (*cosmo_key, lmax, zb.tolist(), limber_lmin),
+        lambda: glass.ext.camb.matter_cls(pars, lmax, shells, limber=limber,
+                                          limber_lmin=limber_lmin if limber else 0),
     )
 
 
@@ -572,11 +584,25 @@ def parse_args(argv=None):
 
     sim = p.add_argument_group("simulation")
     sim.add_argument(
-        "--nside", type=int, default=4096,
+        "--nside", type=int, default=2048,
         help="HEALPix resolution for the lognormal density/shear maps. Does NOT change the "
              "total simulated galaxy count (that's density x footprint area) — only how "
              "finely clustering is resolved on the sky, and therefore runtime. Default: "
-             "4096, matching the bundled mask's native resolution (no downgrade needed).",
+             "2048. Higher nside raises each shell's pixel variance, so the linear galaxy "
+             "bias clips more and the lens clustering drops further below theory (see "
+             "README, 'Known limitations'). The 4096 mask is downgraded to this nside.",
+    )
+    sim.add_argument(
+        "--shell-dx", type=float, default=SHELL_DX,
+        help="Comoving width of the matter shells in Mpc. Default: %(default)s (~69 shells "
+             "to z=3.5). Wider shells dilute the lens clustering; thinner ones clip more "
+             "under the linear bias and, at high lmax, can make GLASS fail with 'covariance "
+             "matrix is not positive definite'.",
+    )
+    sim.add_argument(
+        "--exact-cls", action="store_true",
+        help=f"Compute the shell matter Cls exactly at every ell. Default: Limber above "
+             f"ell={LIMBER_LMIN}, exact below (minutes instead of hours for ~70 shells).",
     )
     sim.add_argument(
         "--lmax", type=int, default=None,
@@ -728,12 +754,16 @@ def main(argv=None):
 
     lsst_cfg = binny.load_survey_config("lsst")
     zmax = float(lsst_cfg["z_grid"]["stop"])
-    zb, shells = build_shells(cosmo, zmax)
+    zb, shells = build_shells(cosmo, zmax, args.shell_dx)
+    log.info("matter shells: %d of %.0f Mpc comoving, z = 0 to %.2f (dz %.3f at z~0.3, %.3f at z~1)",
+             len(shells), args.shell_dx, zmax,
+             float(np.interp(0.3, zb[:-1], np.diff(zb))), float(np.interp(1.0, zb[:-1], np.diff(zb))))
     global shells_global, cosmo_global
     shells_global = shells
     cosmo_global = cosmo
 
-    cls = get_matter_cls(pars, args.lmax, shells, cache_dir, cosmo_key, zb)
+    limber_lmin = None if args.exact_cls else LIMBER_LMIN
+    cls = get_matter_cls(pars, args.lmax, shells, cache_dir, cosmo_key, zb, limber_lmin)
 
     if args.debug_density_scale != 1.0:
         log.warning(

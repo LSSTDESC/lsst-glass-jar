@@ -23,7 +23,9 @@ You can check which variables can be controlled via command line by
     python generate_lsst_glass_mock.py -h 
     
 In any case:
-* `--nside`: HEALPix resolution for the density/shear maps. Does NOT change the total galaxy count (that's density x footprint area), only clustering resolution and runtime [default: `4096`, the bundled mask's native resolution]
+* `--nside`: HEALPix resolution for the density/shear maps. Does NOT change the total galaxy count (that's density x footprint area), only clustering resolution and runtime [default: `2048`; the 4096 mask is downgraded. Higher nside lowers the lens clustering, see [Known limitations](#known-limitations)]
+* `--shell-dx`: comoving width of the matter shells in Mpc [default: `100`, ~69 shells to z=3.5]
+* `--exact-cls`: flag, compute the shell matter Cls exactly at every ell [default: off, Limber above ell=100]
 * `--lmax`: maximum angular multipole [default: `nside`]
 * `--year`: LSST survey year preset, `1` or `10` — resolves n(z)/bins/density/photo-z scatter via [binny](https://binny-org.github.io/binny/)'s `lsst` config
 * `--seed`: random seed
@@ -59,7 +61,7 @@ The following is independent of `--nside`, `--year`, or the survey mask:
 |---|---|
 | Cosmology | Planck 2018 TT,TE,EE+lowE+lensing: H0=67.36, omch2=0.1200, ombh2=0.02237 |
 | redshift range | (0.0, 3.5) — pulled from [binny's `lsst` z-grid](https://binny-org.github.io/binny/main/examples/surveys/survey_presets.html), not hardcoded |
-| number of shells | 25 (comoving-distance, linear windows) |
+| matter shells | linear windows every 100 Mpc comoving (`--shell-dx`), ~69 to z=3.5 |
 | lmax | = nside (default) |
 | galaxy bias | constant = 1.5 |
 | redshift-distr | Smail et al. distr. (via binny's `lsst` preset, per role/year) |
@@ -72,6 +74,43 @@ The following depend on `--year` and role (lens = clustering, source = shear), r
 | tomographic bins | 5 | 5 | 10 | 5 |
 | photo-z error (z=0), sigma_z0 | 0.03 | 0.05 | 0.03 | 0.05 |
 | shape noise, sigma_e | — | 0.26 | — | 0.26 |
+
+## Known limitations
+
+**Lens clustering sits below the theory Cls.** Two effects of the lognormal + linear-bias model, both in
+the catalogue itself, not in any analysis code:
+
+* **Shell width.** A galaxy clusters with the whole matter shell it is drawn in, so a shell wider than a
+  lens tomographic bin dilutes that bin's clustering. The old fixed 25-shell grid (~250 Mpc) lost 13-20%
+  of the lens auto-spectra; 100 Mpc shells lose 2-4%.
+* **Clipping of the linear bias.** Galaxies are sampled from `1 + b*delta` with `b = 1.5`, set to zero
+  where negative. The clipped fraction grows with the pixel variance of a shell: thinner shells and
+  higher `--nside` clip more, mostly at low redshift.
+
+Expected lens C_gg relative to continuous theory (CAMB/CCL), ell 30-300, Y1:
+
+| `--shell-dx`, `--nside` | lens0 | lens1 | lens2 | lens3 | lens4 |
+|---|---|---|---|---|---|
+| old default (25 shells, 4096) | 0.82 | 0.84 | 0.83 | 0.81 | 0.79 |
+| **100 Mpc, 2048 (default)** | **0.88** | **0.93** | **0.96** | **0.96** | **0.96** |
+| 100 Mpc, 4096 | 0.82 | 0.88 | 0.93 | 0.95 | 0.96 |
+| measured: one 100 Mpc, 2048 mock (±0.01-0.03) | 0.85 | 0.96 | 0.97 | 0.96 | 0.91 |
+
+The rows without "measured" are predictions (shell weights x clipping model). The model matched full-sky
+GLASS runs at nside 512 to 0.01 and the old 4096 mock to within 0.03.
+
+Galaxy-galaxy lensing is 0.95-1.00 of theory at the defaults, and cosmic shear 0.98-1.01. Fitting these
+catalogues with a linear-bias model will therefore pull the lens biases low (most for the lowest bins).
+The theory SACC written by `--save-theory-cls` is GLASS's own prediction for the shells, without the
+clipping; it does not include these losses either.
+
+Very thin shells (well below 100 Mpc) at high `lmax` can make GLASS stop with "covariance matrix is not
+positive definite" for shells at z < 0.25.
+
+**Shear convention.** `G1`/`G2` are the components in the local (east, north) basis: positive `G1` is
+elongation along RA. HEALPix (and NaMaster) use the (theta, phi) basis, which is rotated by 90 degrees:
+there, `Q + iU = -(G1 + i G2)`. Feeding `G1`/`G2` as `Q`/`U` unchanged flips the sign of
+galaxy-galaxy lensing (cosmic shear is unaffected).
 
 ## Visibility Cut
 
